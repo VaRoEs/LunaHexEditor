@@ -5,10 +5,10 @@
 ## ✨ Features
 
 - 🎯 **Direct disk access** - physical disks via `\\.\PhysicalDriveN`
-- 📁 **File support** - any file up to 10MB (configurable)
-- 💾 **Smart backup system** - text format, editable in Notepad
+- 📁 **File support** - any file up to ....
+- 💾 **Smart backup system** - text format, editable in Notepad(bin)
 - 🔄 **Compare with backup** - visual highlighting (green/red)
-- ✏️ **Edit mode** - with auto-complete timer (20 seconds)
+- ✏️ **Edit mode** - with auto-complete timer (60 seconds)
 - 🎨 **Change highlighting** - yellow background for modified bytes
 - 🔍 **Virtual ListView** - memory efficient for large files
 - 🖥️ **Broad compatibility** - Windows 2000, XP, Vista, 7, 8, 10, 11
