@@ -13,6 +13,9 @@
 - 🔍 **Virtual ListView** - memory efficient for large files
 - 🖥️ **Broad compatibility** - Windows 2000, XP, Vista, 7, 8, 10, 11
 
+  <img width="885" height="636" alt="screenshot_20260704_221130" src="https://github.com/user-attachments/assets/dcbc7537-be33-4aa4-8976-999f3c2da923" />
+
+
 
 
 
