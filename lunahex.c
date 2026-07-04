@@ -1,8 +1,4 @@
-/*
- * Luna Hex Editor - Special Hex Editor for Windows (32/64 bit)
- * Professional Edition (Lazy Loading + Delta Mapping)
- * Built with MSYS2 MinGW-w64 GCC
- */
+
 
 #ifndef DECLSPEC_IMPORT
 #define DECLSPEC_IMPORT __declspec(dllimport)
