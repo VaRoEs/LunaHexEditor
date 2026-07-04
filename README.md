@@ -12,7 +12,6 @@
 - 🎨 **Change highlighting** - yellow background for modified bytes
 - 🔍 **Virtual ListView** - memory efficient for large files
 - 🖥️ **Broad compatibility** - Windows 2000, XP, Vista, 7, 8, 10, 11
-- 📦 **Tiny footprint** - only 484KB 32bit and 493KB 64bit!
 
 
 
