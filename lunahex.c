@@ -1,7 +1,7 @@
 /*
  * Luna Hex Editor - Special Hex Editor for Windows (32/64 bit)
- * Professional Edition (Lazy Loading + Delta Mapping)
- * Vertical List Format (Index, Hex, Backup)
+ * Professional Edition (Lazy Loading + Delta Mapping + Batch Backup UI)
+ * Vertical List Format
  */
 
 #ifndef DECLSPEC_IMPORT
@@ -36,6 +36,10 @@ typedef struct _GET_LENGTH_INFORMATION {
 #define IDC_BTN_APPLY       1009
 #define IDC_STATUSBAR       1011
 #define IDC_TIMER           1013
+#define IDC_BTN_BATCH_ADD   1014
+#define IDC_BTN_BATCH_BKUP  1015
+#define IDC_BTN_BATCH_CLEAR 1016
+#define IDC_BATCH_LIST      1017
 
 #ifndef IDD_DISK_DIALOG
 #define IDD_DISK_DIALOG     2000
@@ -50,6 +54,7 @@ typedef struct _GET_LENGTH_INFORMATION {
 #define COLOR_EDIT_BG       RGB(255, 255, 200)
 
 #define CACHE_SIZE 512
+#define MAX_BATCH_FILES 500
 
 // ============ СТРУКТУРЫ И ТИПЫ ============
 typedef struct {
@@ -104,10 +109,15 @@ DOCUMENT        g_doc = {0};
 APP_MODE        g_mode = MODE_VIEW;
 APPLY_TIMER     g_applyTimer = {0, 0};
 HWND            g_hListView = NULL;
+HWND            g_hBatchList = NULL; // Окно списка очереди
 HWND            g_hStatusBar = NULL;
 HWND            g_hBtnApply = NULL;
 EDITCELLINFO    g_editInfo;
 WNDPROC         OldEditProc = NULL;
+
+// Пакетная очередь файлов
+WCHAR           g_BatchFiles[MAX_BATCH_FILES][MAX_PATH];
+int             g_BatchCount = 0;
 
 // ============ ПРОТОТИПЫ ФУНКЦИЙ ============
 LRESULT CALLBACK MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -172,9 +182,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!RegisterClassEx(&wc)) return 1;
     
     g_hMainWnd = CreateWindowEx(
-        0, L"LunaHexEditorClass", L"Luna Hex Editor PRO v2.0",
+        0, L"LunaHexEditorClass", L"Luna Hex Editor PRO v3.0 (Dynamic Batch UI)",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, CW_USEDEFAULT, 900, 650,
+        CW_USEDEFAULT, CW_USEDEFAULT, 950, 680,
         NULL, NULL, hInstance, NULL);
     
     if (!g_hMainWnd) return 1;
@@ -537,6 +547,7 @@ void EditNextCell(int nextIndex) {
 // --- GUI: ГЛАВНАЯ ЛОГИКА ---
 void InitGUI(HWND hwnd)
 {
+    // Главная таблица (Hex)
     g_hListView = CreateWindowEx(WS_EX_CLIENTEDGE, WC_LISTVIEW, L"",
         WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_OWNERDATA,
         0, 0, 0, 0, hwnd, (HMENU)IDC_LISTVIEW, g_hInst, NULL);
@@ -548,15 +559,27 @@ void InitGUI(HWND hwnd)
     lvc.iSubItem = 1; lvc.pszText = L"Hex"; lvc.cx = 80; ListView_InsertColumn(g_hListView, 1, &lvc);
     lvc.iSubItem = 2; lvc.pszText = L"Backup"; lvc.cx = 80; ListView_InsertColumn(g_hListView, 2, &lvc);
     
+    // Боковая панель для очереди файлов (скрыта по умолчанию)
+    g_hBatchList = CreateWindowEx(WS_EX_CLIENTEDGE, L"LISTBOX", NULL,
+        WS_CHILD | WS_VSCROLL | WS_HSCROLL | LBS_NOINTEGRALHEIGHT | LBS_NOTIFY,
+        0, 0, 0, 0, hwnd, (HMENU)IDC_BATCH_LIST, g_hInst, NULL);
+
+    // Ряд 1
     CreateWindowEx(0, L"BUTTON", L"Открыть диск", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 100, 30, hwnd, (HMENU)IDC_BTN_OPEN_DISK, g_hInst, NULL);
     CreateWindowEx(0, L"BUTTON", L"Открыть файл", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 100, 30, hwnd, (HMENU)IDC_BTN_OPEN_FILE, g_hInst, NULL);
-    CreateWindowEx(0, L"BUTTON", L"Экспорт", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 80, 30, hwnd, (HMENU)IDC_BTN_EXPORT, g_hInst, NULL);
-    CreateWindowEx(0, L"BUTTON", L"Бекап", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 80, 30, hwnd, (HMENU)IDC_BTN_LOAD_BACKUP, g_hInst, NULL);
+    CreateWindowEx(0, L"BUTTON", L"Экспорт (Текущ)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 120, 30, hwnd, (HMENU)IDC_BTN_EXPORT, g_hInst, NULL);
     CreateWindowEx(0, L"BUTTON", L"Сравнить", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 80, 30, hwnd, (HMENU)IDC_BTN_COMPARE, g_hInst, NULL);
+    CreateWindowEx(0, L"BUTTON", L"Загрузить Бэкап", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 120, 30, hwnd, (HMENU)IDC_BTN_LOAD_BACKUP, g_hInst, NULL);
+    
+    // Ряд 2
     CreateWindowEx(0, L"BUTTON", L"Восстановить", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 100, 30, hwnd, (HMENU)IDC_BTN_RESTORE_ALL, g_hInst, NULL);
     CreateWindowEx(0, L"BUTTON", L"Режим правки", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 100, 30, hwnd, (HMENU)IDC_BTN_EDIT_MODE, g_hInst, NULL);
-    g_hBtnApply = CreateWindowEx(0, L"BUTTON", L"Применить", WS_CHILD | BS_PUSHBUTTON, 0, 0, 120, 30, hwnd, (HMENU)IDC_BTN_APPLY, g_hInst, NULL);
+    g_hBtnApply = CreateWindowEx(0, L"BUTTON", L"Применить", WS_CHILD | BS_PUSHBUTTON, 0, 0, 90, 30, hwnd, (HMENU)IDC_BTN_APPLY, g_hInst, NULL);
     
+    CreateWindowEx(0, L"BUTTON", L"В очередь", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 90, 30, hwnd, (HMENU)IDC_BTN_BATCH_ADD, g_hInst, NULL);
+    CreateWindowEx(0, L"BUTTON", L"Очистить", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 80, 30, hwnd, (HMENU)IDC_BTN_BATCH_CLEAR, g_hInst, NULL);
+    CreateWindowEx(0, L"BUTTON", L"Пакетный бекап", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 120, 30, hwnd, (HMENU)IDC_BTN_BATCH_BKUP, g_hInst, NULL);
+
     g_hStatusBar = CreateWindowEx(0, STATUSCLASSNAME, L"", WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0, hwnd, (HMENU)IDC_STATUSBAR, g_hInst, NULL);
 }
 
@@ -574,14 +597,22 @@ void UpdateStatusBar(void)
 {
     if (!g_hStatusBar) return;
     WCHAR txt[512];
-    if (g_doc.hFile == INVALID_HANDLE_VALUE) wcscpy(txt, L"Готов. Откройте диск или файл.");
-    else {
+    WCHAR queueTxt[64] = L"";
+    
+    if (g_BatchCount > 0) {
+        wsprintfW(queueTxt, L" | В очереди: %d файлов", g_BatchCount);
+    }
+
+    if (g_doc.hFile == INVALID_HANDLE_VALUE) {
+        swprintf(txt, 512, L"Готов. Откройте диск или файл.%s", queueTxt);
+    } else {
         double sizeMB = (double)g_doc.total_bytes.QuadPart / (1024.0 * 1024.0);
-        swprintf(txt, 512, L"%s | Размер: %.2f МБ | Режим: %s | Изменений: %u %s",
+        swprintf(txt, 512, L"%s | Размер: %.2f МБ | Режим: %s | Изменений: %u %s%s",
             g_doc.source_name, sizeMB,
             g_mode == MODE_VIEW ? L"Просмотр" : (g_mode == MODE_EDIT ? L"Правка" : L"Сравнение"),
             g_doc.edit_count,
-            g_doc.backup_loaded ? L"| [БЕКАП ПОДКЛЮЧЕН]" : L"");
+            g_doc.backup_loaded ? L"| [БЕКАП ПОДКЛЮЧЕН]" : L"",
+            queueTxt);
     }
     SetWindowText(g_hStatusBar, txt);
 }
@@ -682,6 +713,106 @@ void OnApply(HWND hwnd) {
     }
 }
 
+// --- НОВЫЕ ФУНКЦИИ: ПАКЕТНЫЙ БЕКАП (С ВИЗУАЛИЗАЦИЕЙ СПИСКА) ---
+void OnBatchAddFiles(HWND hwnd)
+{
+    OPENFILENAMEW ofn = {0}; 
+    WCHAR fileBuf[32768] = {0}; 
+    ofn.lStructSize = sizeof(ofn); 
+    ofn.hwndOwner = hwnd; 
+    ofn.lpstrFilter = L"Все файлы (*.*)\0*.*\0";
+    ofn.lpstrFile = fileBuf; 
+    ofn.nMaxFile = 32768; 
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+
+    if (GetOpenFileNameW(&ofn)) {
+        WCHAR* ptr = fileBuf;
+        
+        // Одиночный файл
+        if (ptr[wcslen(ptr) + 1] == L'\0') {
+            if (g_BatchCount < MAX_BATCH_FILES) {
+                wcscpy(g_BatchFiles[g_BatchCount], ptr);
+                
+                // Вытаскиваем только имя файла для красивого вывода в боковой панели
+                WCHAR* slash = wcsrchr(g_BatchFiles[g_BatchCount], L'\\');
+                SendMessageW(g_hBatchList, LB_ADDSTRING, 0, (LPARAM)(slash ? slash + 1 : g_BatchFiles[g_BatchCount]));
+                g_BatchCount++;
+            }
+        } else {
+            // Мульти-выбор (сначала идет папка, затем имена файлов)
+            WCHAR dir[MAX_PATH];
+            wcscpy(dir, ptr);
+            ptr += wcslen(ptr) + 1;
+            while (*ptr) {
+                if (g_BatchCount < MAX_BATCH_FILES) {
+                    wsprintfW(g_BatchFiles[g_BatchCount], L"%s\\%s", dir, ptr);
+                    
+                    // ptr здесь - это уже чистое имя файла (без папки)
+                    SendMessageW(g_hBatchList, LB_ADDSTRING, 0, (LPARAM)ptr);
+                    g_BatchCount++;
+                }
+                ptr += wcslen(ptr) + 1;
+            }
+        }
+        
+        // Обновляем UI, чтобы выехала боковая панель
+        UpdateStatusBar();
+        RECT rc; GetClientRect(hwnd, &rc);
+        SendMessage(hwnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
+    }
+}
+
+void OnBatchClear(HWND hwnd)
+{
+    if (g_BatchCount > 0) {
+        g_BatchCount = 0;
+        SendMessageW(g_hBatchList, LB_RESETCONTENT, 0, 0);
+        UpdateStatusBar();
+        
+        // Обновляем UI, чтобы скрыть боковую панель
+        RECT rc; GetClientRect(hwnd, &rc);
+        SendMessage(hwnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
+    }
+}
+
+void OnBatchBackup(HWND hwnd)
+{
+    if (g_BatchCount == 0) {
+        MessageBox(hwnd, L"Очередь пуста! Нажмите 'В очередь' и выберите файлы.", L"Пусто", MB_ICONWARNING);
+        return;
+    }
+
+    int successCount = 0;
+    
+    for (int i = 0; i < g_BatchCount; i++) {
+        HANDLE hSrc = CreateFileW(g_BatchFiles[i], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        if (hSrc == INVALID_HANDLE_VALUE) continue;
+
+        WCHAR dstPath[MAX_PATH];
+        wsprintfW(dstPath, L"%s.bin", g_BatchFiles[i]);
+        
+        HANDLE hDst = CreateFileW(dstPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hDst != INVALID_HANDLE_VALUE) {
+            BYTE buffer[65536]; 
+            DWORD bytesRead, bytesWritten;
+            
+            while (ReadFile(hSrc, buffer, sizeof(buffer), &bytesRead, NULL) && bytesRead > 0) {
+                WriteFile(hDst, buffer, bytesRead, &bytesWritten, NULL);
+            }
+            CloseHandle(hDst);
+            successCount++;
+        }
+        CloseHandle(hSrc);
+    }
+
+    WCHAR msg[256];
+    wsprintfW(msg, L"Пакетное копирование завершено!\nУспешно создано бекапов (.bin): %d из %d", successCount, g_BatchCount);
+    MessageBox(hwnd, msg, L"Готово", MB_OK | MB_ICONINFORMATION);
+    
+    // Авто-очистка очереди после успешного создания бекапов
+    OnBatchClear(hwnd);
+}
+
 LRESULT HandleListViewCustomDraw(NMLVCUSTOMDRAW* plvcd)
 {
     switch (plvcd->nmcd.dwDrawStage) {
@@ -730,20 +861,40 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             int sbH = 22; 
             int btnH = 30; 
             int pad = 10;
-            int listH = rc.bottom - sbH - btnH - (pad * 3);
+            int listH = rc.bottom - sbH - (btnH * 2 + 5) - (pad * 3);
             
-            if (g_hListView) SetWindowPos(g_hListView, NULL, pad, pad, rc.right - (pad*2), listH, SWP_NOZORDER);
-            
-            int btnY = pad + listH + pad;
-            int x = pad; int w = 90;
-            
-            HWND btns[] = { GetDlgItem(hwnd, IDC_BTN_OPEN_DISK), GetDlgItem(hwnd, IDC_BTN_OPEN_FILE), GetDlgItem(hwnd, IDC_BTN_EXPORT), 
-                            GetDlgItem(hwnd, IDC_BTN_LOAD_BACKUP), GetDlgItem(hwnd, IDC_BTN_COMPARE), GetDlgItem(hwnd, IDC_BTN_RESTORE_ALL),
-                            GetDlgItem(hwnd, IDC_BTN_EDIT_MODE), GetDlgItem(hwnd, IDC_BTN_APPLY) };
-            
-            for (int i=0; i<8; i++) {
-                if (btns[i]) { SetWindowPos(btns[i], NULL, x, btnY, w, btnH, SWP_NOZORDER); x += w + 5; }
+            // ДИНАМИЧЕСКИЙ ИНТЕРФЕЙС: Выезжающая панель с файлами
+            if (g_BatchCount > 0) {
+                int batchW = 250; // Ширина панели файлов
+                if (g_hListView) SetWindowPos(g_hListView, NULL, pad, pad, rc.right - (pad*3) - batchW, listH, SWP_NOZORDER);
+                if (g_hBatchList) {
+                    SetWindowPos(g_hBatchList, NULL, rc.right - pad - batchW, pad, batchW, listH, SWP_NOZORDER);
+                    ShowWindow(g_hBatchList, SW_SHOW);
+                }
+            } else {
+                if (g_hListView) SetWindowPos(g_hListView, NULL, pad, pad, rc.right - (pad*2), listH, SWP_NOZORDER);
+                if (g_hBatchList) ShowWindow(g_hBatchList, SW_HIDE);
             }
+            
+            int btnY1 = pad + listH + pad;       // Первый ряд кнопок
+            int btnY2 = btnY1 + btnH + 5;        // Второй ряд кнопок
+            int x = pad; 
+            
+            HWND btnsRow1[] = { GetDlgItem(hwnd, IDC_BTN_OPEN_DISK), GetDlgItem(hwnd, IDC_BTN_OPEN_FILE), GetDlgItem(hwnd, IDC_BTN_EXPORT), 
+                                GetDlgItem(hwnd, IDC_BTN_COMPARE), GetDlgItem(hwnd, IDC_BTN_LOAD_BACKUP) };
+            int wRow1[] = { 100, 100, 120, 80, 120 };
+            for (int i=0; i<5; i++) {
+                if (btnsRow1[i]) { SetWindowPos(btnsRow1[i], NULL, x, btnY1, wRow1[i], btnH, SWP_NOZORDER); x += wRow1[i] + 5; }
+            }
+
+            x = pad;
+            HWND btnsRow2[] = { GetDlgItem(hwnd, IDC_BTN_RESTORE_ALL), GetDlgItem(hwnd, IDC_BTN_EDIT_MODE), GetDlgItem(hwnd, IDC_BTN_APPLY),
+                                GetDlgItem(hwnd, IDC_BTN_BATCH_ADD), GetDlgItem(hwnd, IDC_BTN_BATCH_CLEAR), GetDlgItem(hwnd, IDC_BTN_BATCH_BKUP) };
+            int wRow2[] = { 100, 100, 90, 90, 80, 120 };
+            for (int i=0; i<6; i++) {
+                if (btnsRow2[i]) { SetWindowPos(btnsRow2[i], NULL, x, btnY2, wRow2[i], btnH, SWP_NOZORDER); x += wRow2[i] + 5; }
+            }
+
             if (g_hStatusBar) SendMessage(g_hStatusBar, WM_SIZE, 0, 0);
         }
         break;
@@ -778,7 +929,6 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 }
                 if (pnmh->code == NM_DBLCLK && g_mode == MODE_EDIT) {
                     LPNMITEMACTIVATE lpnmitem = (LPNMITEMACTIVATE)lParam;
-                    // Разрешаем редактировать только вторую колонку (Hex файла)
                     if (lpnmitem->iItem >= 0 && lpnmitem->iSubItem == 1) {
                         CreateCellEditor(g_hListView, lpnmitem->iItem, 1);
                     }
@@ -798,6 +948,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             case IDC_BTN_RESTORE_ALL: OnRestoreAll(hwnd); break;
             case IDC_BTN_EDIT_MODE: OnEditMode(hwnd); break;
             case IDC_BTN_APPLY: OnApply(hwnd); break;
+            case IDC_BTN_BATCH_ADD: OnBatchAddFiles(hwnd); break;
+            case IDC_BTN_BATCH_CLEAR: OnBatchClear(hwnd); break;
+            case IDC_BTN_BATCH_BKUP: OnBatchBackup(hwnd); break;
             }
         }
         break;
