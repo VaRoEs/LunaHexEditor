@@ -18,14 +18,21 @@
 
 
 
-Open disk- opens a disk for scanning (requires administrator rights) 
-Open file-opens any file for selection Export(current)-saves a backup copy of a file/disk 
-Compare-compares two files, the original and the backup (usually works automatically) 
-Upload backup-uploads a file for restoration 
-Restore-changes all values from the backup Edit mode-allows you to edit the code 
-Queue-adds files for subsequent batch backup creation 
-Clear-cleans the list of files from the queue 
-Batch backup-creates a bunch of backup files for each bin and name
+**Open disk**- opens a disk for scanning (requires administrator rights) 
+
+**Open file**-opens any file for selection Export(current)-saves a backup copy of a file/disk 
+
+**Compare**-compares two files, the original and the backup (usually works automatically) 
+
+**Upload backup**-uploads a file for restoration 
+
+**Restore**-changes all values from the backup Edit mode-allows you to edit the code 
+
+**Queue**-adds files for subsequent batch backup creation 
+
+**Clear-cleans** the list of files from the queue 
+
+**Batch backup**-creates a bunch of backup files for each bin and name
 
 
 
