@@ -13,13 +13,19 @@
 - 🔍 **Virtual ListView** - memory efficient for large files
 - 🖥️ **Broad compatibility** - Windows 2000, XP, Vista, 7, 8, 10, 11
 
-  <img width="885" height="636" alt="screenshot_20260704_221130" src="https://github.com/user-attachments/assets/dcbc7537-be33-4aa4-8976-999f3c2da923" />
 
 
 
-You can chooze Export, and create new backup, file what you choose for protect. Button backup it will apply the backup to the file, and you will see elements highlighted in red that do not match the original. You can then select edit mode and manually replace the values, or click the restore button to replace everything automatically.
-To modify the drives, you must run the program with administrator privileges. The "Compare" button can compare your files; however, this mode starts automatically.
 
+
+Open disk- opens a disk for scanning (requires administrator rights) 
+Open file-opens any file for selection Export(current)-saves a backup copy of a file/disk 
+Compare-compares two files, the original and the backup (usually works automatically) 
+Upload backup-uploads a file for restoration 
+Restore-changes all values from the backup Edit mode-allows you to edit the code 
+Queue-adds files for subsequent batch backup creation 
+Clear-cleans the list of files from the queue 
+Batch backup-creates a bunch of backup files for each bin and name
 
 
 
