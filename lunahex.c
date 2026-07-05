@@ -1,4 +1,8 @@
-
+/*
+ * Luna Hex Editor - Special Hex Editor for Windows (32/64 bit)
+ * Professional Edition (Lazy Loading + Delta Mapping)
+ * Vertical List Format (Index, Hex, Backup)
+ */
 
 #ifndef DECLSPEC_IMPORT
 #define DECLSPEC_IMPORT __declspec(dllimport)
@@ -8,6 +12,7 @@
 #include <winioctl.h>
 #include <commctrl.h>
 #include <stdio.h>
+#include <wchar.h>
 #include <commdlg.h>
 
 #pragma comment(linker,"\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='x86' publicKeyToken='6595b64144ccf1df' language='*'\"")
@@ -47,13 +52,11 @@ typedef struct _GET_LENGTH_INFORMATION {
 #define CACHE_SIZE 512
 
 // ============ СТРУКТУРЫ И ТИПЫ ============
-// Структура одного изменения (Delta Map)
 typedef struct {
     LARGE_INTEGER offset;
     BYTE new_val;
 } EDIT_RECORD;
 
-// Движок документа
 typedef struct tagDOCUMENT
 {
     HANDLE        hFile;
@@ -61,24 +64,20 @@ typedef struct tagDOCUMENT
     LARGE_INTEGER total_bytes;
     WCHAR         source_name[MAX_PATH];
 
-    // Кэш основного файла (1 сектор)
     LARGE_INTEGER cache_offset;
     BYTE          cache[CACHE_SIZE];
     BOOL          cache_valid;
 
-    // Карта изменений
     EDIT_RECORD   *edits;
     DWORD         edit_count;
     DWORD         edit_capacity;
     BOOL          is_modified;
 
-    // Бекап (бинарный)
     HANDLE        hBackup;
     LARGE_INTEGER backup_size;
     WCHAR         backup_path[MAX_PATH];
     BOOL          backup_loaded;
     
-    // Кэш бекапа
     LARGE_INTEGER backup_cache_offset;
     BYTE          backup_cache[CACHE_SIZE];
     BOOL          backup_cache_valid;
@@ -173,7 +172,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!RegisterClassEx(&wc)) return 1;
     
     g_hMainWnd = CreateWindowEx(
-        0, L"LunaHexEditorClass", L"Luna Hex Editor PRO v2.0 (Lazy Load)",
+        0, L"LunaHexEditorClass", L"Luna Hex Editor PRO v2.0",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 900, 650,
         NULL, NULL, hInstance, NULL);
@@ -217,7 +216,7 @@ void CheckAdminRights(void)
     }
 }
 
-// --- ЯДРО ДВИЖКА (LAZY LOADING) ---
+// --- ЯДРО ДВИЖКА ---
 void DocInit(DOCUMENT* doc)
 {
     memset(doc, 0, sizeof(DOCUMENT));
@@ -283,7 +282,6 @@ BYTE DocGetByte(DOCUMENT* doc, LARGE_INTEGER offset, BOOL* is_edited)
     if (is_edited) *is_edited = FALSE;
     if (doc->hFile == INVALID_HANDLE_VALUE || offset.QuadPart >= doc->total_bytes.QuadPart) return 0;
     
-    // 1. Проверяем Карту изменений
     for (DWORD i = 0; i < doc->edit_count; i++) {
         if (doc->edits[i].offset.QuadPart == offset.QuadPart) {
             if (is_edited) *is_edited = TRUE;
@@ -291,7 +289,6 @@ BYTE DocGetByte(DOCUMENT* doc, LARGE_INTEGER offset, BOOL* is_edited)
         }
     }
     
-    // 2. Читаем из кэша / диска
     LARGE_INTEGER aligned;
     aligned.QuadPart = offset.QuadPart & ~(CACHE_SIZE - 1);
     
@@ -308,7 +305,6 @@ BYTE DocGetByte(DOCUMENT* doc, LARGE_INTEGER offset, BOOL* is_edited)
 
 void DocSetByte(DOCUMENT* doc, LARGE_INTEGER offset, BYTE val)
 {
-    // Ищем, есть ли уже изменение для этого смещения
     for (DWORD i = 0; i < doc->edit_count; i++) {
         if (doc->edits[i].offset.QuadPart == offset.QuadPart) {
             doc->edits[i].new_val = val;
@@ -317,13 +313,11 @@ void DocSetByte(DOCUMENT* doc, LARGE_INTEGER offset, BYTE val)
         }
     }
     
-    // Расширяем массив если нужно
     if (doc->edit_count >= doc->edit_capacity) {
         doc->edit_capacity *= 2;
         doc->edits = (EDIT_RECORD*)HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, doc->edits, doc->edit_capacity * sizeof(EDIT_RECORD));
     }
     
-    // Добавляем новое изменение
     doc->edits[doc->edit_count].offset = offset;
     doc->edits[doc->edit_count].new_val = val;
     doc->edit_count++;
@@ -339,7 +333,6 @@ BOOL DocWriteAllEdits(DOCUMENT* doc)
         LARGE_INTEGER aligned;
         aligned.QuadPart = doc->edits[i].offset.QuadPart & ~(CACHE_SIZE - 1);
         
-        // Читаем сектор, модифицируем и пишем обратно (R-M-W цикл)
         SetFilePointerEx(doc->hFile, aligned, NULL, FILE_BEGIN);
         DWORD rw;
         if (ReadFile(doc->hFile, sector, CACHE_SIZE, &rw, NULL)) {
@@ -351,11 +344,11 @@ BOOL DocWriteAllEdits(DOCUMENT* doc)
     
     doc->edit_count = 0;
     doc->is_modified = FALSE;
-    doc->cache_valid = FALSE; // Инвалидируем кэш
+    doc->cache_valid = FALSE;
     return TRUE;
 }
 
-// --- ЯДРО БЕКАПОВ (БИНАРНОЕ) ---
+// --- ЯДРО БЕКАПОВ ---
 BOOL BackupExport(DOCUMENT* doc, const WCHAR* path)
 {
     if (doc->hFile == INVALID_HANDLE_VALUE) return FALSE;
@@ -363,7 +356,6 @@ BOOL BackupExport(DOCUMENT* doc, const WCHAR* path)
     HANDLE hOut = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hOut == INVALID_HANDLE_VALUE) return FALSE;
     
-    // Дампим по 4 мегабайта за раз
     const DWORD BBUF_SIZE = 4 * 1024 * 1024;
     BYTE* buf = (BYTE*)HeapAlloc(GetProcessHeap(), 0, BBUF_SIZE);
     
@@ -532,8 +524,8 @@ void ApplyEdit(HWND hEdit)
 }
 
 void CancelEdit(HWND hEdit) { DestroyWindow(hEdit); g_editInfo.hEdit = NULL; }
+
 void EditNextCell(int nextIndex) {
-    // В UI лимит 2 ГБ
     int limit = (g_doc.total_bytes.QuadPart > 0x7FFFFFFF) ? 0x7FFFFFFF : (int)g_doc.total_bytes.QuadPart;
     if (nextIndex >= 0 && nextIndex < limit) {
         ListView_EnsureVisible(g_editInfo.hListView, nextIndex, FALSE);
@@ -549,10 +541,10 @@ void InitGUI(HWND hwnd)
         WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_OWNERDATA,
         0, 0, 0, 0, hwnd, (HMENU)IDC_LISTVIEW, g_hInst, NULL);
     
-    ListView_SetExtendedListViewStyle(g_hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+    ListView_SetExtendedListViewStyle(g_hListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
     
     LVCOLUMN lvc = {0}; lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
-    lvc.iSubItem = 0; lvc.pszText = L"Address"; lvc.cx = 100; ListView_InsertColumn(g_hListView, 0, &lvc);
+    lvc.iSubItem = 0; lvc.pszText = L"Index"; lvc.cx = 80; ListView_InsertColumn(g_hListView, 0, &lvc);
     lvc.iSubItem = 1; lvc.pszText = L"Hex"; lvc.cx = 80; ListView_InsertColumn(g_hListView, 1, &lvc);
     lvc.iSubItem = 2; lvc.pszText = L"Backup"; lvc.cx = 80; ListView_InsertColumn(g_hListView, 2, &lvc);
     
@@ -572,8 +564,6 @@ void UpdateListView(HWND hwnd)
 {
     if (!g_hListView || g_doc.hFile == INVALID_HANDLE_VALUE) return;
     
-    // Стандартный ListView поддерживает только INT_MAX (2 ГБ). 
-    // Для больших дисков в проф. утилитах делают 16 байт на строку.
     int limit = (g_doc.total_bytes.QuadPart > 0x7FFFFFFF) ? 0x7FFFFFFF : (int)g_doc.total_bytes.QuadPart;
     ListView_SetItemCountEx(g_hListView, limit, LVSICF_NOSCROLL);
     ListView_RedrawItems(g_hListView, 0, limit - 1);
@@ -586,12 +576,12 @@ void UpdateStatusBar(void)
     WCHAR txt[512];
     if (g_doc.hFile == INVALID_HANDLE_VALUE) wcscpy(txt, L"Готов. Откройте диск или файл.");
     else {
-        // Форматируем размер (мб терабайты)
-        double sizeMB = (double)g_doc.total_bytes.QuadPart / (1024*1024);
-        wsprintfW(txt, L"%s | Размер: %.2f МБ | Режим: %s | Изменений: %u",
+        double sizeMB = (double)g_doc.total_bytes.QuadPart / (1024.0 * 1024.0);
+        swprintf(txt, 512, L"%s | Размер: %.2f МБ | Режим: %s | Изменений: %u %s",
             g_doc.source_name, sizeMB,
             g_mode == MODE_VIEW ? L"Просмотр" : (g_mode == MODE_EDIT ? L"Правка" : L"Сравнение"),
-            g_doc.edit_count);
+            g_doc.edit_count,
+            g_doc.backup_loaded ? L"| [БЕКАП ПОДКЛЮЧЕН]" : L"");
     }
     SetWindowText(g_hStatusBar, txt);
 }
@@ -604,7 +594,7 @@ void SwitchMode(APP_MODE newMode)
     case MODE_COMPARE:
         EnableWindow(g_hBtnApply, FALSE); ShowWindow(g_hBtnApply, SW_HIDE);
         StopApplyTimer();
-        g_doc.edit_count = 0; // Сбрасываем изменения при выходе
+        g_doc.edit_count = 0; 
         break;
     case MODE_EDIT:
         EnableWindow(g_hBtnApply, TRUE); ShowWindow(g_hBtnApply, SW_SHOW);
@@ -666,8 +656,14 @@ void OnLoadBackup(HWND hwnd)
     OPENFILENAMEW ofn = {0}; WCHAR file[MAX_PATH] = L"";
     ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = hwnd; ofn.lpstrFilter = L"Bin (*.bin)\0*.bin\0";
     ofn.lpstrFile = file; ofn.nMaxFile = MAX_PATH; ofn.Flags = OFN_FILEMUSTEXIST;
+    
     if (GetOpenFileNameW(&ofn)) {
-        if (BackupLoad(&g_doc, file)) { UpdateListView(hwnd); UpdateStatusBar(); }
+        if (BackupLoad(&g_doc, file)) { 
+            SwitchMode(MODE_COMPARE); 
+            MessageBox(hwnd, L"Бекап успешно загружен!\nВключен режим сравнения.", L"Готово", MB_OK | MB_ICONINFORMATION);
+        } else {
+            MessageBox(hwnd, L"Не удалось загрузить файл бекапа!", L"Ошибка", MB_ICONERROR);
+        }
     }
 }
 
@@ -686,7 +682,6 @@ void OnApply(HWND hwnd) {
     }
 }
 
-// --- ИСПРАВЛЕННЫЙ CUSTOM DRAW (Цвета и Отрисовка) ---
 LRESULT HandleListViewCustomDraw(NMLVCUSTOMDRAW* plvcd)
 {
     switch (plvcd->nmcd.dwDrawStage) {
@@ -732,14 +727,13 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_SIZE:
         {
             RECT rc; GetClientRect(hwnd, &rc);
-            int sbH = 22; // Высота статусбара
-            int btnH = 30; // Высота кнопки
+            int sbH = 22; 
+            int btnH = 30; 
             int pad = 10;
             int listH = rc.bottom - sbH - btnH - (pad * 3);
             
             if (g_hListView) SetWindowPos(g_hListView, NULL, pad, pad, rc.right - (pad*2), listH, SWP_NOZORDER);
             
-            // Динамическая расстановка кнопок (привязаны к низу)
             int btnY = pad + listH + pad;
             int x = pad; int w = 90;
             
@@ -766,18 +760,28 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         BOOL dirty = FALSE;
                         BYTE val = DocGetByte(&g_doc, off, &dirty);
                         if (pdi->item.mask & LVIF_TEXT) {
-                            if (pdi->item.iSubItem == 0) wsprintfW(pdi->item.pszText, L"0x%08X", (DWORD)off.QuadPart);
-                            else if (pdi->item.iSubItem == 1) ByteToHexStr(val, pdi->item.pszText);
+                            if (pdi->item.iSubItem == 0) {
+                                wsprintfW(pdi->item.pszText, L"%d)", (int)off.QuadPart + 1);
+                            }
+                            else if (pdi->item.iSubItem == 1) {
+                                ByteToHexStr(val, pdi->item.pszText);
+                            }
                             else if (pdi->item.iSubItem == 2) {
-                                if (g_doc.backup_loaded && off.QuadPart < g_doc.backup_size.QuadPart) ByteToHexStr(BackupGetByte(&g_doc, off), pdi->item.pszText);
-                                else wcscpy(pdi->item.pszText, L"--");
+                                if (g_doc.backup_loaded && off.QuadPart < g_doc.backup_size.QuadPart) {
+                                    ByteToHexStr(BackupGetByte(&g_doc, off), pdi->item.pszText);
+                                } else {
+                                    wcscpy(pdi->item.pszText, L"--");
+                                }
                             }
                         }
                     }
                 }
                 if (pnmh->code == NM_DBLCLK && g_mode == MODE_EDIT) {
-                    int iItem = ListView_GetNextItem(g_hListView, -1, LVNI_SELECTED);
-                    if (iItem >= 0) CreateCellEditor(g_hListView, iItem, 1);
+                    LPNMITEMACTIVATE lpnmitem = (LPNMITEMACTIVATE)lParam;
+                    // Разрешаем редактировать только вторую колонку (Hex файла)
+                    if (lpnmitem->iItem >= 0 && lpnmitem->iSubItem == 1) {
+                        CreateCellEditor(g_hListView, lpnmitem->iItem, 1);
+                    }
                 }
             }
         }
