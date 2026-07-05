@@ -17,6 +17,10 @@
 
 
 
+You can chooze Export, and create new backup, file what you choose for protect. Button backup it will apply the backup to the file, and you will see elements highlighted in red that do not match the original. You can then select edit mode and manually replace the values, or click the restore button to replace everything automatically.
+To modify the drives, you must run the program with administrator privileges.
+
+
 
 
 
