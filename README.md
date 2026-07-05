@@ -22,6 +22,8 @@
 
 **Open file**-opens any file for selection Export(current)-saves a backup copy of a file/disk 
 
+**Export**-create backup file
+
 **Compare**-compares two files, the original and the backup (usually works automatically) 
 
 **Upload backup**-uploads a file for restoration 
